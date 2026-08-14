@@ -41,7 +41,9 @@ Fallback candidate:
 
 ## Phase A — PZ capability probe
 
-The mod scaffold in `mod/42.20` contains a deliberately non-invasive capability probe. It does not execute shell commands, load libraries, or contact the network.
+The installable development mod is under `mod/WHG_PZ_Companion`. It follows the Build 42 local-mod layout with `42/` and `common/` directories. The capability probe is deliberately non-invasive: it does not execute shell commands, load libraries, or contact the network.
+
+For local testing, copy the entire `WHG_PZ_Companion` directory into the PZ user `mods` directory so the resulting structure includes `WHG_PZ_Companion/42/mod.info`.
 
 It records whether relevant documented/global APIs are present in the running Lua environment and writes the result to the PZ user-file area when possible.
 
