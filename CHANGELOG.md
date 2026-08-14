@@ -18,6 +18,9 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 - Structured conversation request fixture and constrained response JSON Schema.
 - ADR-003 documenting the initial llama.cpp/model benchmark decision.
 - Exhaustive, cycle-safe Java namespace enumeration for the Build 42 capability probe, with full results written to the probe file and concise console summaries.
+- Canonical Spike 002 plan for a separately started offline sidecar using file IPC, including hosting feasibility, reliability, inference, and dedicated-server go/no-go gates.
+- ADR-004 documenting the proposed offline sidecar/file-IPC architecture.
+- ADR index explaining the purpose and lifecycle of Architecture Decision Records.
 
 ### Research and architecture decisions
 - Completed Spike 001 runtime-capability testing on Project Zomboid 42.20.2 using Windows single-player and Linux dedicated-server environments.
@@ -25,6 +28,8 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 - Exhaustively enumerated the exposed `java` and `org` namespace tables and documented the resulting curated Java whitelist in `docs/SPIKE-001_LOCAL_INFERENCE.md`.
 - Closed the direct in-process/mod-launched inference path as a no-go for Build 42.20.2 ordinary mods.
 - Selected a separately started, fully offline sidecar using PZ-supported file IPC as the next integration architecture; tracked as Spike 002.
+- Identified dedicated-host support for an additional process/custom startup/custom container as the first Spike 002 deployment gate.
+- Defined a hosting-provider rejection as a no-go for the Willow Hill dedicated-server deployment on that host unless changing hosting is acceptable.
 - Deferred the standalone llama.cpp/model benchmark until the sidecar IPC transport is proven.
 
 ## [0.0.1] - Planned
