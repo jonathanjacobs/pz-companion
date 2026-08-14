@@ -56,6 +56,16 @@ local JAVA_NAMESPACE_PATHS = {
     "com.sun.jna.NativeLibrary",
 }
 
+-- Top-level namespaces inspected exhaustively when they are ordinary Lua
+-- tables. There is deliberately no key-count limit. The iterative traversal
+-- plus visited-table tracking prevents recursion overflow and cycles.
+local JAVA_NAMESPACE_ROOTS = {
+    "java",
+    "com",
+    "org",
+    "sun",
+}
+
 -- Returns a stable textual description of a global without invoking it.
 -- pcall is used because the Kahlua environment may reject access to some
 -- Java-backed values even when a symbol exists.
@@ -124,49 +134,142 @@ local function describeDottedPath(path)
     return type(value)
 end
 
--- Lists a bounded number of keys from a dotted table path. This is useful for
--- understanding PZ's explicitly exposed Java namespace without attempting
--- reflection, construction, method calls, or access to non-exposed classes.
-local function collectTableKeys(path, maxKeys)
-    local result = {}
-    local ok = pcall(function()
+-- Returns the value at a dotted global path without invoking it. The caller is
+-- responsible for checking the returned value's type before enumerating it.
+local function getDottedPathValue(path)
+    local ok, value = pcall(function()
         local current = _G
         for segment in string.gmatch(path, "[^%.]+") do
             if current == nil then
-                return
+                return nil
             end
             current = current[segment]
         end
-
-        if type(current) ~= "table" then
-            return
-        end
-
-        for key, value in pairs(current) do
-            table.insert(result, {
-                key = tostring(key),
-                valueType = type(value),
-            })
-            if #result >= maxKeys then
-                break
-            end
-        end
+        return current
     end)
 
     if not ok then
-        return {
-            {
-                key = "<enumeration-error>",
-                valueType = "error",
-            },
-        }
+        return nil, false
     end
 
-    table.sort(result, function(a, b)
-        return a.key < b.key
+    return value, true
+end
+
+-- Exhaustively enumerates every key reachable through ordinary Lua tables from
+-- one namespace root. There is no arbitrary key-count or depth cutoff.
+--
+-- An explicit work stack is used instead of recursive function calls so a
+-- deeply nested namespace cannot overflow the Lua call stack. `visited` tracks
+-- table identity to prevent cycles or aliases from being traversed repeatedly.
+-- Non-table values are recorded by path and Lua-visible type but never invoked.
+-- Enumeration errors are recorded and isolated so one unusual table cannot
+-- abort the remainder of the probe.
+local function collectNamespaceTree(rootPath)
+    local entries = {}
+    local stats = {
+        entries = 0,
+        tablesVisited = 0,
+        maxDepthReached = 0,
+        cyclesSkipped = 0,
+        errors = 0,
+        rootType = "missing",
+    }
+
+    local root, rootOk = getDottedPathValue(rootPath)
+    if not rootOk then
+        stats.rootType = "access-error"
+        stats.errors = 1
+        return entries, stats
+    end
+
+    stats.rootType = root == nil and "missing" or type(root)
+    if type(root) ~= "table" then
+        return entries, stats
+    end
+
+    local visited = {}
+    local stack = {
+        {
+            value = root,
+            path = rootPath,
+            depth = 0,
+        },
+    }
+
+    while #stack > 0 do
+        local node = table.remove(stack)
+
+        if visited[node.value] then
+            stats.cyclesSkipped = stats.cyclesSkipped + 1
+        else
+            visited[node.value] = true
+            stats.tablesVisited = stats.tablesVisited + 1
+            if node.depth > stats.maxDepthReached then
+                stats.maxDepthReached = node.depth
+            end
+
+            local children = {}
+            local enumerateOk = pcall(function()
+                for key, value in pairs(node.value) do
+                    table.insert(children, {
+                        keyText = tostring(key),
+                        value = value,
+                        valueType = type(value),
+                    })
+                end
+            end)
+
+            if not enumerateOk then
+                stats.errors = stats.errors + 1
+                table.insert(entries, {
+                    path = node.path .. ".<enumeration-error>",
+                    valueType = "error",
+                    depth = node.depth + 1,
+                })
+            else
+                -- Sort each table's members so repeated runs produce stable,
+                -- diff-friendly output regardless of pairs() iteration order.
+                table.sort(children, function(a, b)
+                    return a.keyText < b.keyText
+                end)
+
+                -- Record every child immediately. This includes table-valued
+                -- namespace nodes as well as leaf functions/classes/values.
+                for _, child in ipairs(children) do
+                    local childPath = node.path .. "." .. child.keyText
+                    table.insert(entries, {
+                        path = childPath,
+                        valueType = child.valueType,
+                        depth = node.depth + 1,
+                    })
+                    stats.entries = stats.entries + 1
+                    if node.depth + 1 > stats.maxDepthReached then
+                        stats.maxDepthReached = node.depth + 1
+                    end
+                end
+
+                -- Push table children in reverse sorted order. The final full
+                -- result is sorted by path before return, but deterministic
+                -- traversal also makes diagnostics easier to reason about.
+                for index = #children, 1, -1 do
+                    local child = children[index]
+                    if child.valueType == "table" then
+                        table.insert(stack, {
+                            value = child.value,
+                            path = node.path .. "." .. child.keyText,
+                            depth = node.depth + 1,
+                        })
+                    end
+                end
+            end
+        end
+    end
+
+    table.sort(entries, function(a, b)
+        return a.path < b.path
     end)
 
-    return result
+    return entries, stats
 end
 
 -- Evaluates a normal boolean-returning PZ global such as isServer/isClient.
@@ -205,8 +308,8 @@ local function isSuspiciousGlobalName(name)
 end
 
 -- Enumerates the names and Lua-visible types of potentially relevant globals.
--- The list is intentionally bounded to matching names rather than dumping the
--- complete global environment, keeping test output readable and low-risk.
+-- This remains a small console-friendly summary; exhaustive Java namespace
+-- enumeration is performed separately and written only to the probe file.
 local function collectSuspiciousGlobals()
     local result = {}
 
@@ -270,7 +373,8 @@ function CapabilityProbe.collect()
         capabilities = {},
         suspiciousGlobals = {},
         javaPaths = {},
-        javaKeys = {},
+        namespaceTrees = {},
+        namespaceStats = {},
         environment = {},
     }
 
@@ -295,9 +399,14 @@ function CapabilityProbe.collect()
         report.javaPaths[path] = describeDottedPath(path)
     end
 
-    report.javaKeys["java"] = collectTableKeys("java", 100)
-    report.javaKeys["java.lang"] = collectTableKeys("java.lang", 100)
-    report.javaKeys["com"] = collectTableKeys("com", 100)
+    -- Exhaustively enumerate every reachable ordinary-table key under each
+    -- candidate Java namespace root. Missing/non-table roots yield an empty
+    -- tree plus summary stats rather than an error.
+    for _, rootPath in ipairs(JAVA_NAMESPACE_ROOTS) do
+        local entries, stats = collectNamespaceTree(rootPath)
+        report.namespaceTrees[rootPath] = entries
+        report.namespaceStats[rootPath] = stats
+    end
 
     local server, serverStatus = callBooleanGlobal("isServer")
     local client, clientStatus = callBooleanGlobal("isClient")
@@ -310,18 +419,25 @@ function CapabilityProbe.collect()
     return report
 end
 
+-- Adds a line to both the console-summary list and the file-report list.
+local function addSummaryLine(summaryLines, fileLines, line)
+    table.insert(summaryLines, line)
+    table.insert(fileLines, line)
+end
+
 -- Writes the probe report using Project Zomboid's documented file writer.
--- If the writer is unavailable, the same information is still printed to the
--- console so the test remains useful.
+-- Console output is intentionally summarized; the exhaustive namespace dump
+-- is written only to the file so large exposed namespaces do not flood logs.
 local function writeReport(label, report)
-    local lines = {
-        "PZ Companion capability probe",
-        "label=" .. tostring(label),
-        "isServer=" .. tostring(report.environment.isServer),
-        "isServerStatus=" .. tostring(report.environment.isServerStatus),
-        "isClient=" .. tostring(report.environment.isClient),
-        "isClientStatus=" .. tostring(report.environment.isClientStatus),
-    }
+    local summaryLines = {}
+    local fileLines = {}
+
+    addSummaryLine(summaryLines, fileLines, "PZ Companion capability probe")
+    addSummaryLine(summaryLines, fileLines, "label=" .. tostring(label))
+    addSummaryLine(summaryLines, fileLines, "isServer=" .. tostring(report.environment.isServer))
+    addSummaryLine(summaryLines, fileLines, "isServerStatus=" .. tostring(report.environment.isServerStatus))
+    addSummaryLine(summaryLines, fileLines, "isClient=" .. tostring(report.environment.isClient))
+    addSummaryLine(summaryLines, fileLines, "isClientStatus=" .. tostring(report.environment.isClientStatus))
 
     local names = {}
     for name, _ in pairs(report.globals) do
@@ -330,7 +446,11 @@ local function writeReport(label, report)
     table.sort(names)
 
     for _, name in ipairs(names) do
-        table.insert(lines, "global." .. name .. "=" .. tostring(report.globals[name]))
+        addSummaryLine(
+            summaryLines,
+            fileLines,
+            "global." .. name .. "=" .. tostring(report.globals[name])
+        )
     end
 
     local capabilityNames = {}
@@ -340,7 +460,11 @@ local function writeReport(label, report)
     table.sort(capabilityNames)
 
     for _, name in ipairs(capabilityNames) do
-        table.insert(lines, "capability." .. name .. "=" .. tostring(report.capabilities[name]))
+        addSummaryLine(
+            summaryLines,
+            fileLines,
+            "capability." .. name .. "=" .. tostring(report.capabilities[name])
+        )
     end
 
     local javaPathNames = {}
@@ -350,35 +474,84 @@ local function writeReport(label, report)
     table.sort(javaPathNames)
 
     for _, path in ipairs(javaPathNames) do
-        table.insert(lines, "javaPath." .. path .. "=" .. tostring(report.javaPaths[path]))
+        addSummaryLine(
+            summaryLines,
+            fileLines,
+            "javaPath." .. path .. "=" .. tostring(report.javaPaths[path])
+        )
     end
 
-    local javaKeyPaths = {}
-    for path, _ in pairs(report.javaKeys) do
-        table.insert(javaKeyPaths, path)
+    -- Print only per-root statistics to console. The individual namespace
+    -- entries are appended to fileLines below and therefore remain available
+    -- for exhaustive analysis without producing thousands of console lines.
+    local namespaceRoots = {}
+    for rootPath, _ in pairs(report.namespaceStats) do
+        table.insert(namespaceRoots, rootPath)
     end
-    table.sort(javaKeyPaths)
+    table.sort(namespaceRoots)
 
-    for _, path in ipairs(javaKeyPaths) do
-        local entries = report.javaKeys[path]
-        table.insert(lines, "javaKeys." .. path .. ".count=" .. tostring(#entries))
-        for _, entry in ipairs(entries) do
-            table.insert(
-                lines,
-                "javaKeys." .. path .. "." .. tostring(entry.key) .. "=" .. tostring(entry.valueType)
-            )
-        end
+    for _, rootPath in ipairs(namespaceRoots) do
+        local stats = report.namespaceStats[rootPath]
+        addSummaryLine(
+            summaryLines,
+            fileLines,
+            "namespaceStats." .. rootPath .. ".rootType=" .. tostring(stats.rootType)
+        )
+        addSummaryLine(
+            summaryLines,
+            fileLines,
+            "namespaceStats." .. rootPath .. ".entries=" .. tostring(stats.entries)
+        )
+        addSummaryLine(
+            summaryLines,
+            fileLines,
+            "namespaceStats." .. rootPath .. ".tablesVisited=" .. tostring(stats.tablesVisited)
+        )
+        addSummaryLine(
+            summaryLines,
+            fileLines,
+            "namespaceStats." .. rootPath .. ".maxDepthReached=" .. tostring(stats.maxDepthReached)
+        )
+        addSummaryLine(
+            summaryLines,
+            fileLines,
+            "namespaceStats." .. rootPath .. ".cyclesSkipped=" .. tostring(stats.cyclesSkipped)
+        )
+        addSummaryLine(
+            summaryLines,
+            fileLines,
+            "namespaceStats." .. rootPath .. ".errors=" .. tostring(stats.errors)
+        )
     end
 
-    table.insert(lines, "suspiciousGlobalCount=" .. tostring(#report.suspiciousGlobals))
+    addSummaryLine(
+        summaryLines,
+        fileLines,
+        "suspiciousGlobalCount=" .. tostring(#report.suspiciousGlobals)
+    )
     for _, entry in ipairs(report.suspiciousGlobals) do
-        table.insert(
-            lines,
+        addSummaryLine(
+            summaryLines,
+            fileLines,
             "suspiciousGlobal." .. tostring(entry.name) .. "=" .. tostring(entry.valueType)
         )
     end
 
-    for _, line in ipairs(lines) do
+    -- The exhaustive namespace section is file-only. No key-count limit is
+    -- applied; all entries reached by the cycle-safe traversal are recorded.
+    table.insert(fileLines, "namespaceDump.begin")
+    for _, rootPath in ipairs(namespaceRoots) do
+        local entries = report.namespaceTrees[rootPath] or {}
+        for _, entry in ipairs(entries) do
+            table.insert(
+                fileLines,
+                "namespaceEntry." .. entry.path .. "=" .. tostring(entry.valueType)
+            )
+        end
+    end
+    table.insert(fileLines, "namespaceDump.end")
+
+    for _, line in ipairs(summaryLines) do
         print("[WHG PZ Companion] " .. line)
     end
 
@@ -393,7 +566,7 @@ local function writeReport(label, report)
             error("getFileWriter returned nil")
         end
 
-        for _, line in ipairs(lines) do
+        for _, line in ipairs(fileLines) do
             writer:writeln(line)
         end
         writer:close()
@@ -404,7 +577,13 @@ local function writeReport(label, report)
         return false
     end
 
-    print("[WHG PZ Companion] wrote " .. OUTPUT_FILE)
+    print(
+        "[WHG PZ Companion] wrote "
+            .. OUTPUT_FILE
+            .. " with "
+            .. tostring(#fileLines)
+            .. " report lines"
+    )
     return true
 end
 

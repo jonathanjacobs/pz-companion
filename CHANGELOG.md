@@ -17,6 +17,7 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 - Initial model candidate manifest using Qwen2.5-0.5B-Instruct Q4_K_M as the primary benchmark.
 - Structured conversation request fixture and constrained response JSON Schema.
 - ADR-003 documenting the initial llama.cpp/model benchmark decision.
+- Exhaustive, cycle-safe Java namespace enumeration for the Build 42 capability probe, with full results written to the probe file and concise console summaries.
 
 ## [0.0.1] - Planned
 

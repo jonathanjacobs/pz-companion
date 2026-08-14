@@ -19,6 +19,8 @@ Current Project Zomboid Java documentation shows that Lua access to Java is medi
 
 Build 42.20 also shipped after a security patch that may affect some mods, and The Indie Stone notes that additional modding API documentation is planned. Therefore native-library loading or process launch must be treated as unproven until tested in the actual 42.20 runtime.
 
+Empirical Build 42.20.2 tests on Windows single-player and the Willow Hill dedicated server have already shown that ordinary mod Lua does not expose `Runtime`, `ProcessBuilder`, `System`, `Class`, or `luajava`. A follow-up Windows single-player probe also found no LuaJIT/native-module/subprocess primitives (`jit`, `ffi`, `package.loadlib`, `io.popen`, or `os.execute`). The same probe did reveal an exposed `java` table and PZ class-introspection helpers, so the current test focuses on exhaustively characterizing that explicitly exposed namespace before the direct in-process route is closed.
+
 ### Inference runtime
 
 `llama.cpp` supports CPU-only builds and exposes a C-style library API. It is therefore the first runtime candidate if PZ can safely reach a native bridge.
@@ -47,15 +49,32 @@ For local testing, copy the entire `WHG_PZ_Companion` directory into the PZ user
 
 It records whether relevant documented/global APIs are present in the running Lua environment and writes the result to the PZ user-file area when possible.
 
+### Exhaustive Java namespace inspection
+
+The current probe no longer imposes an arbitrary 100-key enumeration limit. For each available top-level namespace root (`java`, `com`, `org`, and `sun`), it traverses every key reachable through ordinary Lua tables.
+
+The traversal is deliberately passive and bounded by structure rather than item count:
+
+- no Java value is invoked or instantiated;
+- no native library or process is loaded;
+- there is no key-count limit;
+- traversal uses an explicit work stack rather than recursive calls, avoiding Lua call-stack depth limits;
+- table identity is tracked so cyclic or aliased table graphs terminate safely;
+- table-enumeration failures are isolated and recorded instead of aborting the probe;
+- console output contains only summary statistics and targeted capability paths;
+- the full namespace dump is written to `WHG_PZ_Companion_capability_probe.txt`.
+
+Summary statistics include total reachable entries, tables visited, maximum observed depth, cycles skipped, and enumeration errors for each namespace root.
+
 ### Test matrix
 
 Run the probe in:
 
-- [ ] Build 42.20 single-player
+- [x] Build 42.20 single-player
 - [ ] Build 42.20 hosted multiplayer
-- [ ] Build 42.20 dedicated server
-- [ ] Windows x86-64
-- [ ] Linux x86-64 dedicated server, if Willow Hill deployment uses Linux
+- [x] Build 42.20 dedicated server
+- [x] Windows x86-64
+- [x] Linux x86-64 dedicated server
 
 For every run capture:
 
@@ -65,11 +84,14 @@ For every run capture:
 - operating system
 - Java runtime version reported by PZ, if available
 
+For follow-up capability work, Windows single-player is sufficient unless a result suggests client/server differences that require revalidation.
+
 ### Questions Phase A must answer
 
 - Are the standard mod/file I/O functions available?
 - Is any supported mechanism exposed for loading additional Java/native code?
 - Is any supported mechanism exposed for launching a local child process?
+- Does PZ's exposed `java` namespace contain any sanctioned bridge-capable Java/JNA/runtime classes?
 - Does the answer differ between client, hosted server, and dedicated server?
 - Does anti-cheat/checksum behavior reject any proposed packaged runtime artifacts?
 
