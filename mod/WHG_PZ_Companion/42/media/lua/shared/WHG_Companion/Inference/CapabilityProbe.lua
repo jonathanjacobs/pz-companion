@@ -27,6 +27,7 @@ local SUSPICIOUS_NAME_TERMS = {
     "command",
     "jna",
     "ffi",
+    "jit",
 }
 
 -- Returns a stable textual description of a global without invoking it.
@@ -35,6 +36,30 @@ local SUSPICIOUS_NAME_TERMS = {
 local function describeGlobal(name)
     local ok, value = pcall(function()
         return _G[name]
+    end)
+
+    if not ok then
+        return "access-error"
+    end
+
+    if value == nil then
+        return "missing"
+    end
+
+    return type(value)
+end
+
+-- Passively describes a member of a global table, such as package.loadlib or
+-- os.execute. The member is never invoked. These specific members are probed
+-- because common Lua LLM wrappers rely on LuaJIT FFI, native module loading,
+-- or child-process launch facilities that may not exist in PZ's Kahlua VM.
+local function describeGlobalMember(globalName, memberName)
+    local ok, value = pcall(function()
+        local root = _G[globalName]
+        if root == nil then
+            return nil
+        end
+        return root[memberName]
     end)
 
     if not ok then
@@ -133,10 +158,16 @@ function CapabilityProbe.collect()
         "ProcessBuilder",
         "System",
         "Class",
+        "jit",
+        "ffi",
+        "package",
+        "os",
+        "io",
     }
 
     local report = {
         globals = {},
+        capabilities = {},
         suspiciousGlobals = {},
         environment = {},
     }
@@ -144,6 +175,14 @@ function CapabilityProbe.collect()
     for _, name in ipairs(globalsToInspect) do
         report.globals[name] = describeGlobal(name)
     end
+
+    -- These are the exact primitives used by the Lua integration approaches
+    -- we are evaluating. Detection is passive: no command, process, DLL/SO,
+    -- or native module is ever loaded or executed by this probe.
+    report.capabilities["package.loadlib"] = describeGlobalMember("package", "loadlib")
+    report.capabilities["package.searchpath"] = describeGlobalMember("package", "searchpath")
+    report.capabilities["os.execute"] = describeGlobalMember("os", "execute")
+    report.capabilities["io.popen"] = describeGlobalMember("io", "popen")
 
     report.suspiciousGlobals = collectSuspiciousGlobals()
 
@@ -179,6 +218,16 @@ local function writeReport(label, report)
 
     for _, name in ipairs(names) do
         table.insert(lines, "global." .. name .. "=" .. tostring(report.globals[name]))
+    end
+
+    local capabilityNames = {}
+    for name, _ in pairs(report.capabilities) do
+        table.insert(capabilityNames, name)
+    end
+    table.sort(capabilityNames)
+
+    for _, name in ipairs(capabilityNames) do
+        table.insert(lines, "capability." .. name .. "=" .. tostring(report.capabilities[name]))
     end
 
     table.insert(lines, "suspiciousGlobalCount=" .. tostring(#report.suspiciousGlobals))
