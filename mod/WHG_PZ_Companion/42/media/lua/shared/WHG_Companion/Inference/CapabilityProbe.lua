@@ -12,6 +12,23 @@ local CapabilityProbe = {}
 
 local OUTPUT_FILE = "WHG_PZ_Companion_capability_probe.txt"
 
+-- Terms used only to identify potentially relevant exposed global names.
+-- Matching a name does not invoke the corresponding value.
+local SUSPICIOUS_NAME_TERMS = {
+    "java",
+    "class",
+    "native",
+    "library",
+    "process",
+    "runtime",
+    "system",
+    "shell",
+    "exec",
+    "command",
+    "jna",
+    "ffi",
+}
+
 -- Returns a stable textual description of a global without invoking it.
 -- pcall is used because the Kahlua environment may reject access to some
 -- Java-backed values even when a symbol exists.
@@ -48,6 +65,57 @@ local function callBooleanGlobal(name)
     return result == true, "ok"
 end
 
+-- Returns true when a global name contains a term potentially relevant to
+-- Java/native/runtime integration. This is name-only inspection: the value is
+-- not invoked and no attempt is made to escape the exposed Lua environment.
+local function isSuspiciousGlobalName(name)
+    if type(name) ~= "string" then
+        return false
+    end
+
+    local lowerName = string.lower(name)
+    for _, term in ipairs(SUSPICIOUS_NAME_TERMS) do
+        if string.find(lowerName, term, 1, true) then
+            return true
+        end
+    end
+
+    return false
+end
+
+-- Enumerates the names and Lua-visible types of potentially relevant globals.
+-- The list is intentionally bounded to matching names rather than dumping the
+-- complete global environment, keeping test output readable and low-risk.
+local function collectSuspiciousGlobals()
+    local result = {}
+
+    local ok = pcall(function()
+        for name, value in pairs(_G) do
+            if isSuspiciousGlobalName(name) then
+                table.insert(result, {
+                    name = name,
+                    valueType = type(value),
+                })
+            end
+        end
+    end)
+
+    if not ok then
+        return {
+            {
+                name = "<enumeration-error>",
+                valueType = "error",
+            },
+        }
+    end
+
+    table.sort(result, function(a, b)
+        return tostring(a.name) < tostring(b.name)
+    end)
+
+    return result
+end
+
 -- Collects only presence/type information. Symbols associated with process
 -- execution are deliberately NOT called; their presence is useful evidence,
 -- but invoking undocumented or restricted Java APIs is outside this probe.
@@ -69,12 +137,15 @@ function CapabilityProbe.collect()
 
     local report = {
         globals = {},
+        suspiciousGlobals = {},
         environment = {},
     }
 
     for _, name in ipairs(globalsToInspect) do
         report.globals[name] = describeGlobal(name)
     end
+
+    report.suspiciousGlobals = collectSuspiciousGlobals()
 
     local server, serverStatus = callBooleanGlobal("isServer")
     local client, clientStatus = callBooleanGlobal("isClient")
@@ -108,6 +179,14 @@ local function writeReport(label, report)
 
     for _, name in ipairs(names) do
         table.insert(lines, "global." .. name .. "=" .. tostring(report.globals[name]))
+    end
+
+    table.insert(lines, "suspiciousGlobalCount=" .. tostring(#report.suspiciousGlobals))
+    for _, entry in ipairs(report.suspiciousGlobals) do
+        table.insert(
+            lines,
+            "suspiciousGlobal." .. tostring(entry.name) .. "=" .. tostring(entry.valueType)
+        )
     end
 
     for _, line in ipairs(lines) do
