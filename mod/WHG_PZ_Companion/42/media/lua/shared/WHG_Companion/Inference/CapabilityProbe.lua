@@ -30,6 +30,32 @@ local SUSPICIOUS_NAME_TERMS = {
     "jit",
 }
 
+-- Candidate namespace paths that would matter for an in-process Java/native
+-- bridge. Reading a path is passive: no constructor or method is called.
+local JAVA_NAMESPACE_PATHS = {
+    "java.lang",
+    "java.lang.Runtime",
+    "java.lang.ProcessBuilder",
+    "java.lang.System",
+    "java.lang.Class",
+    "java.lang.ClassLoader",
+    "java.lang.Thread",
+    "java.lang.reflect",
+    "java.lang.reflect.Method",
+    "java.lang.reflect.Field",
+    "java.io",
+    "java.io.File",
+    "java.nio",
+    "java.util",
+    "java.util.ArrayList",
+    "com",
+    "com.sun",
+    "com.sun.jna",
+    "com.sun.jna.Native",
+    "com.sun.jna.Library",
+    "com.sun.jna.NativeLibrary",
+}
+
 -- Returns a stable textual description of a global without invoking it.
 -- pcall is used because the Kahlua environment may reject access to some
 -- Java-backed values even when a symbol exists.
@@ -71,6 +97,76 @@ local function describeGlobalMember(globalName, memberName)
     end
 
     return type(value)
+end
+
+-- Resolves a dotted path such as java.lang.Runtime by table/member lookup only.
+-- This intentionally does not invoke any value encountered along the path.
+local function describeDottedPath(path)
+    local ok, value = pcall(function()
+        local current = _G
+        for segment in string.gmatch(path, "[^%.]+") do
+            if current == nil then
+                return nil
+            end
+            current = current[segment]
+        end
+        return current
+    end)
+
+    if not ok then
+        return "access-error"
+    end
+
+    if value == nil then
+        return "missing"
+    end
+
+    return type(value)
+end
+
+-- Lists a bounded number of keys from a dotted table path. This is useful for
+-- understanding PZ's explicitly exposed Java namespace without attempting
+-- reflection, construction, method calls, or access to non-exposed classes.
+local function collectTableKeys(path, maxKeys)
+    local result = {}
+    local ok = pcall(function()
+        local current = _G
+        for segment in string.gmatch(path, "[^%.]+") do
+            if current == nil then
+                return
+            end
+            current = current[segment]
+        end
+
+        if type(current) ~= "table" then
+            return
+        end
+
+        for key, value in pairs(current) do
+            table.insert(result, {
+                key = tostring(key),
+                valueType = type(value),
+            })
+            if #result >= maxKeys then
+                break
+            end
+        end
+    end)
+
+    if not ok then
+        return {
+            {
+                key = "<enumeration-error>",
+                valueType = "error",
+            },
+        }
+    end
+
+    table.sort(result, function(a, b)
+        return a.key < b.key
+    end)
+
+    return result
 end
 
 -- Evaluates a normal boolean-returning PZ global such as isServer/isClient.
@@ -163,12 +259,18 @@ function CapabilityProbe.collect()
         "package",
         "os",
         "io",
+        "java",
+        "com",
+        "org",
+        "sun",
     }
 
     local report = {
         globals = {},
         capabilities = {},
         suspiciousGlobals = {},
+        javaPaths = {},
+        javaKeys = {},
         environment = {},
     }
 
@@ -185,6 +287,17 @@ function CapabilityProbe.collect()
     report.capabilities["io.popen"] = describeGlobalMember("io", "popen")
 
     report.suspiciousGlobals = collectSuspiciousGlobals()
+
+    -- Inspect only the presence/type of Java namespace paths that would be
+    -- relevant to a supported bridge. No class is instantiated and no method
+    -- such as Runtime.getRuntime(), System.load(), or JNA Native.load() is run.
+    for _, path in ipairs(JAVA_NAMESPACE_PATHS) do
+        report.javaPaths[path] = describeDottedPath(path)
+    end
+
+    report.javaKeys["java"] = collectTableKeys("java", 100)
+    report.javaKeys["java.lang"] = collectTableKeys("java.lang", 100)
+    report.javaKeys["com"] = collectTableKeys("com", 100)
 
     local server, serverStatus = callBooleanGlobal("isServer")
     local client, clientStatus = callBooleanGlobal("isClient")
@@ -228,6 +341,33 @@ local function writeReport(label, report)
 
     for _, name in ipairs(capabilityNames) do
         table.insert(lines, "capability." .. name .. "=" .. tostring(report.capabilities[name]))
+    end
+
+    local javaPathNames = {}
+    for path, _ in pairs(report.javaPaths) do
+        table.insert(javaPathNames, path)
+    end
+    table.sort(javaPathNames)
+
+    for _, path in ipairs(javaPathNames) do
+        table.insert(lines, "javaPath." .. path .. "=" .. tostring(report.javaPaths[path]))
+    end
+
+    local javaKeyPaths = {}
+    for path, _ in pairs(report.javaKeys) do
+        table.insert(javaKeyPaths, path)
+    end
+    table.sort(javaKeyPaths)
+
+    for _, path in ipairs(javaKeyPaths) do
+        local entries = report.javaKeys[path]
+        table.insert(lines, "javaKeys." .. path .. ".count=" .. tostring(#entries))
+        for _, entry in ipairs(entries) do
+            table.insert(
+                lines,
+                "javaKeys." .. path .. "." .. tostring(entry.key) .. "=" .. tostring(entry.valueType)
+            )
+        end
     end
 
     table.insert(lines, "suspiciousGlobalCount=" .. tostring(#report.suspiciousGlobals))
