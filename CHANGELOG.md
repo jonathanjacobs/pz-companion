@@ -12,6 +12,11 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 - Hybrid architecture separating language generation from deterministic game-state control.
 - Clean-room development policy.
 - Apache-2.0 software licensing model with separate asset licensing.
+- Spike 001 research plan for Build 42.20 local inference feasibility.
+- Build 42.20 client/server capability-probe mod scaffold.
+- Initial model candidate manifest using Qwen2.5-0.5B-Instruct Q4_K_M as the primary benchmark.
+- Structured conversation request fixture and constrained response JSON Schema.
+- ADR-003 documenting the initial llama.cpp/model benchmark decision.
 
 ## [0.0.1] - Planned
 

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://willowhill.games/schemas/pz-companion-response.schema.json",
+  "title": "PZ Companion inference response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["speech", "intent", "confidence", "parameters"],
+  "properties": {
+    "speech": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 600
+    },
+    "intent": {
+      "type": "string",
+      "enum": [
+        "NONE",
+        "FOLLOW",
+        "WAIT",
+        "GUARD",
+        "RETREAT",
+        "COLLECT_RESOURCE",
+        "MOVE_ITEMS",
+        "COOK",
+        "LOOT",
+        "DEFEND"
+      ]
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "parameters": {
+      "type": "object"
+    }
+  }
+}

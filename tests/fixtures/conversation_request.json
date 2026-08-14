@@ -1,0 +1,18 @@
+{
+  "companion": {
+    "name": "Sarah Morgan",
+    "personality": ["dry humor", "cautious", "loyal"],
+    "relationshipTrust": 82
+  },
+  "world": {
+    "location": "Willow Hill base",
+    "timeOfDay": "evening",
+    "generatorFuelPercent": 14,
+    "ammunitionSupply": "low"
+  },
+  "relevantMemories": [
+    "The player saved Sarah from a warehouse in Riverside.",
+    "Sarah was badly injured during the last trip to Louisville."
+  ],
+  "playerText": "Can you grab enough firewood for tonight? Stay close to the house and don't use the shotgun unless you have to."
+}
