@@ -1,6 +1,6 @@
 # PZ Companion
 
-A Willow Hill Games prototype for Project Zomboid Build 42 that explores persistent NPC companions, fully local conversational AI, structured tasking, and combat/survival behaviors.
+A Willow Hill Games prototype for Project Zomboid Build 42 that explores persistent NPC companions, fully local conversational AI, structured tasking, and deterministic combat/survival behaviors.
 
 Created 13 AUG 2026.
 
@@ -8,16 +8,61 @@ Created 13 AUG 2026.
 
 - Run without external network services during play.
 - Keep companion state persistent across save/server restarts.
-- Use a locally packaged language model only for conversation and intent interpretation.
+- Use a local language model only for conversation and intent interpretation.
 - Keep game actions deterministic and validated in Lua/Project Zomboid code.
 - Support multiplayer with server-authoritative companion state.
 - Maintain clean-room provenance and avoid copying protected code/assets from other mods.
 
-## Initial milestone
+## Current status
 
-`v0.0.1` is an engineering feasibility spike: prove that Project Zomboid Build 42 can invoke a bundled local inference runtime/model, receive structured output, and do so with acceptable CPU/RAM usage and no network dependency.
+### Spike 001 — Build 42 local-inference capability: COMPLETE
 
-See `docs/REQUIREMENTS.md` and `docs/ARCHITECTURE.md` for the working specification.
+Spike 001 tested whether ordinary Project Zomboid Build 42.20.2 mod Lua can directly load or launch a packaged local LLM inference runtime.
+
+The result is a **NO-GO for direct in-process or mod-launched inference** through the supported Lua surface identified in Build 42.20.2.
+
+Empirical Windows single-player and Linux dedicated-server tests found that normal mod Lua does not expose the process-launch, native-library, LuaJIT FFI, dynamic Lua-module, reflection, classloader, or JNA entry points needed to load or start `llama.cpp` directly. Exhaustive enumeration of the exposed Java namespaces showed a curated whitelist rather than unrestricted JVM access.
+
+The useful positive result is that PZ exposes supported file I/O suitable for local inter-process communication. That leads to the next architecture under investigation.
+
+See [`docs/SPIKE-001_LOCAL_INFERENCE.md`](docs/SPIKE-001_LOCAL_INFERENCE.md) for the complete test record and decision.
+
+### Spike 002 — Offline sidecar + file IPC: PLANNED
+
+Spike 002 will test a separately started local companion runtime communicating with PZ through files rather than HTTP, sockets, cloud APIs, or sandbox workarounds.
+
+Proposed flow:
+
+```text
+Project Zomboid Lua
+    -> request file
+WHG Companion Runtime
+    -> deterministic helper first, then llama.cpp
+    -> response file
+Project Zomboid Lua
+    -> validate response and execute only approved deterministic game actions
+```
+
+The first gate is **deployment feasibility on the dedicated-server host**. The host must permit at least one supported way to run the WHG sidecar on the same server/filesystem as PZ, such as an additional long-lived process, a custom startup command/script, or a custom container configuration.
+
+If the current hosting provider rejects all such options, Spike 002 is a **NO-GO for the Willow Hill dedicated-server deployment on that hosting platform**. Local/single-player development could still continue, and changing hosting remains an architectural option, but the intended server deployment cannot proceed on that host without a supported sidecar mechanism.
+
+See [`docs/SPIKE-002_OFFLINE_SIDECAR_IPC.md`](docs/SPIKE-002_OFFLINE_SIDECAR_IPC.md) for scope, requirements, test phases, and go/no-go criteria.
+
+## Architecture records
+
+Architecture Decision Records (ADRs) capture durable technical decisions and the rationale behind them. They are different from spikes: a spike records an investigation and evidence; an ADR records the architectural choice made from that evidence.
+
+Current ADRs are under [`docs/adr`](docs/adr):
+
+- `ADR-003-local-llm-runtime.md` — initial selection of `llama.cpp` and Qwen2.5-0.5B-Instruct as the reference runtime/model candidates.
+- `ADR-004-offline-sidecar-file-ipc.md` — proposed sidecar/file-IPC architecture following the Spike 001 result.
+
+## Milestone
+
+The current engineering milestone is to establish whether a fully offline local-LLM companion architecture is deployable and reliable for both single-player and the Willow Hill dedicated server. Model quality/performance benchmarking follows once the IPC and hosting path is proven.
+
+See [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md) and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the working specification.
 
 ## License
 
