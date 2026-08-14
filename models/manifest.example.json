@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "candidates": [
+    {
+      "id": "qwen2.5-0.5b-instruct-q4_k_m",
+      "status": "primary-spike",
+      "source": "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
+      "filename": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+      "license": "Apache-2.0",
+      "publishedSize": "491 MB",
+      "runtime": "llama.cpp",
+      "committedToGit": false
+    },
+    {
+      "id": "smollm2-360m-instruct",
+      "status": "fallback",
+      "source": "HuggingFaceTB/SmolLM2-360M-Instruct",
+      "license": "Apache-2.0",
+      "runtime": "llama.cpp",
+      "quantizationPlan": "Create and verify a project-controlled GGUF quantization if this candidate is benchmarked.",
+      "committedToGit": false
+    }
+  ]
+}
