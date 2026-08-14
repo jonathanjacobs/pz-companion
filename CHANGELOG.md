@@ -19,6 +19,14 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 - ADR-003 documenting the initial llama.cpp/model benchmark decision.
 - Exhaustive, cycle-safe Java namespace enumeration for the Build 42 capability probe, with full results written to the probe file and concise console summaries.
 
+### Research and architecture decisions
+- Completed Spike 001 runtime-capability testing on Project Zomboid 42.20.2 using Windows single-player and Linux dedicated-server environments.
+- Confirmed that ordinary mod Lua does not expose supported process-launch, native-library, LuaJIT FFI, dynamic Lua-module, reflection, classloader, or JNA entry points required for direct in-process LLM inference.
+- Exhaustively enumerated the exposed `java` and `org` namespace tables and documented the resulting curated Java whitelist in `docs/SPIKE-001_LOCAL_INFERENCE.md`.
+- Closed the direct in-process/mod-launched inference path as a no-go for Build 42.20.2 ordinary mods.
+- Selected a separately started, fully offline sidecar using PZ-supported file IPC as the next integration architecture; tracked as Spike 002.
+- Deferred the standalone llama.cpp/model benchmark until the sidecar IPC transport is proven.
+
 ## [0.0.1] - Planned
 
 ### Goal
