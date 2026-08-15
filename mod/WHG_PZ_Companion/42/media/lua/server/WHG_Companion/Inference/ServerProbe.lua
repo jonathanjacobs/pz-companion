@@ -1,10 +1,6 @@
 -- SPDX-License-Identifier: Apache-2.0
--- Runs the passive capability probe when a dedicated/host server starts.
-
-local CapabilityProbe = require "WHG_Companion/Inference/CapabilityProbe"
-
-local function onServerStarted()
-    CapabilityProbe.run("server")
-end
-
-Events.OnServerStarted.Add(onServerStarted)
+--
+-- Spike 001 server capability-probe bootstrap retained as historical source.
+-- Spike 001 is complete, so this file intentionally registers no events.
+-- The active development bootstrap is WHG_Companion/IPC/Spike002ServerHarness.lua,
+-- which remains disabled by configuration until the hosting gate is approved.

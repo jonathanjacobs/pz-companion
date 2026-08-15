@@ -1,10 +1,5 @@
 -- SPDX-License-Identifier: Apache-2.0
--- Runs the passive capability probe when a client or single-player game starts.
-
-local CapabilityProbe = require "WHG_Companion/Inference/CapabilityProbe"
-
-local function onGameStart()
-    CapabilityProbe.run("client-or-singleplayer")
-end
-
-Events.OnGameStart.Add(onGameStart)
+--
+-- Spike 001 client capability-probe bootstrap retained as historical source.
+-- Spike 001 is complete, so this file intentionally registers no events.
+-- The active development bootstrap is WHG_Companion/IPC/Spike002ClientHarness.lua.

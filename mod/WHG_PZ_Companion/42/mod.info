@@ -1,8 +1,10 @@
-name=PZ Companion - Local Inference Spike
+name=PZ Companion - Offline Sidecar IPC Spike
 id=WHG_PZ_Companion
 author=Willow Hill Games
-description=<H1>PZ Companion - Local Inference Feasibility Spike
+description=<H1>PZ Companion - Spike 002 Offline Sidecar IPC
 description=<BR>
-description=Development-only capability probe for Project Zomboid Build 42.20.
+description=Development-only file IPC test for Project Zomboid Build 42.20.
 description=<BR>
-description=Does not contact external services or execute arbitrary code.
+description=Uses a separately started deterministic local helper; no external network service is required.
+description=<BR>
+description=Model inference is not enabled in this spike build.

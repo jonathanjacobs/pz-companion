@@ -23,31 +23,47 @@ The result is a **NO-GO for direct in-process or mod-launched inference** throug
 
 Empirical Windows single-player and Linux dedicated-server tests found that normal mod Lua does not expose the process-launch, native-library, LuaJIT FFI, dynamic Lua-module, reflection, classloader, or JNA entry points needed to load or start `llama.cpp` directly. Exhaustive enumeration of the exposed Java namespaces showed a curated whitelist rather than unrestricted JVM access.
 
-The useful positive result is that PZ exposes supported file I/O suitable for local inter-process communication. That leads to the next architecture under investigation.
+The useful positive result is that PZ exposes supported file I/O suitable for local inter-process communication.
 
 See [`docs/SPIKE-001_LOCAL_INFERENCE.md`](docs/SPIKE-001_LOCAL_INFERENCE.md) for the complete test record and decision.
 
-### Spike 002 — Offline sidecar + file IPC: PLANNED
+### Spike 002 — Offline sidecar + file IPC: IMPLEMENTATION PREPARED / HOSTING GATE PENDING
 
-Spike 002 will test a separately started local companion runtime communicating with PZ through files rather than HTTP, sockets, cloud APIs, or sandbox workarounds.
+Spike 002 tests a separately started local companion runtime communicating with PZ through files rather than HTTP, sockets, cloud APIs, or sandbox workarounds.
+
+The initial implementation is prepared on `spike/002-offline-sidecar-ipc` and includes:
+
+- a pure-Lua JSON codec compatible with the PZ/Kahlua constraints used by the mod;
+- protocol-v1 request/response/runtime-status validation;
+- non-blocking PZ file transport with request ready markers, response acknowledgements, timeout handling, and stale-response protection;
+- a reusable deterministic harness shared by single-player/client and dedicated-server bootstraps;
+- a zero-third-party-dependency Python deterministic sidecar for transport testing only;
+- runtime heartbeat/status reporting;
+- Windows and Linux sidecar startup scripts;
+- protocol fixtures and automated sidecar tests;
+- `docs/IPC_PROTOCOL_V1.md` as the durable transport contract.
+
+The client harness is enabled for local testing. The dedicated-server harness is committed but intentionally disabled until the hosting provider confirms an approved sidecar/startup mechanism.
 
 Proposed flow:
 
 ```text
 Project Zomboid Lua
-    -> request file
+    -> request JSON + ready marker
 WHG Companion Runtime
     -> deterministic helper first, then llama.cpp
-    -> response file
+    -> atomically published response JSON
 Project Zomboid Lua
-    -> validate response and execute only approved deterministic game actions
+    -> validate response
+    -> acknowledge response
+    -> execute only separately approved deterministic game actions
 ```
 
-The first gate is **deployment feasibility on the dedicated-server host**. The host must permit at least one supported way to run the WHG sidecar on the same server/filesystem as PZ, such as an additional long-lived process, a custom startup command/script, or a custom container configuration.
+The first gate remains **deployment feasibility on the dedicated-server host**. The host must permit at least one supported way to run the WHG sidecar on the same server/filesystem as PZ, such as an additional long-lived process, a custom startup command/script, or a custom container configuration.
 
-If the current hosting provider rejects all such options, Spike 002 is a **NO-GO for the Willow Hill dedicated-server deployment on that hosting platform**. Local/single-player development could still continue, and changing hosting remains an architectural option, but the intended server deployment cannot proceed on that host without a supported sidecar mechanism.
+If the current hosting provider rejects all such options, Spike 002 is a **NO-GO for the Willow Hill dedicated-server deployment on that hosting platform**. Local/single-player development could still continue, and changing hosting remains an architectural option.
 
-See [`docs/SPIKE-002_OFFLINE_SIDECAR_IPC.md`](docs/SPIKE-002_OFFLINE_SIDECAR_IPC.md) for scope, requirements, test phases, and go/no-go criteria.
+See [`docs/SPIKE-002_OFFLINE_SIDECAR_IPC.md`](docs/SPIKE-002_OFFLINE_SIDECAR_IPC.md) for scope, requirements, implementation status, test phases, and go/no-go criteria.
 
 ## Architecture records
 
@@ -60,7 +76,7 @@ Current ADRs are under [`docs/adr`](docs/adr):
 
 ## Milestone
 
-The current engineering milestone is to establish whether a fully offline local-LLM companion architecture is deployable and reliable for both single-player and the Willow Hill dedicated server. Model quality/performance benchmarking follows once the IPC and hosting path is proven.
+The current engineering milestone is to prove the deterministic file-IPC round trip locally, resolve the hosting deployment gate, and then reproduce the same protocol on the Willow Hill dedicated server. Model quality/performance benchmarking follows once transport and deployment are proven.
 
 See [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md) and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the working specification.
 
