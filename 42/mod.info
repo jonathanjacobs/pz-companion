@@ -1,0 +1,7 @@
+id=pz-companion
+name=PZ Companion
+description=Persistent companion NPC framework with local conversational AI integration experiments and deterministic game-action authority for Project Zomboid Build 42.
+author=Jonathan Jacobs
+category=features
+modversion=0.0.2
+versionMin=42.20.0

@@ -1,8 +1,8 @@
-# Spike 002 deterministic sidecar
+# Spike 002 Deterministic Sidecar
 
-This directory contains the **transport-only** WHG Companion Runtime used by Spike 002. It does not run an LLM. Its purpose is to prove that Project Zomboid Lua and a separately started local process can exchange versioned, correlated request/response data through the PZ user-data filesystem.
+This directory contains the transport-only WHG Companion Runtime used by Spike 002. It does **not** run an LLM. Its purpose is to prove that Project Zomboid Lua and a separately started local process can exchange versioned, correlated request/response data through the PZ user-data filesystem.
 
-The helper is intentionally implemented with Python 3 and the standard library only. Python is a test-harness choice, not a production runtime requirement. Once the IPC contract is proven, the sidecar internals can be replaced by a packaged WHG runtime using `llama.cpp` without changing the PZ-facing protocol.
+Python is a test-harness choice, not a production runtime requirement. Once the IPC contract is proven, the sidecar internals can be replaced by a packaged runtime using llama.cpp without changing the PZ-facing protocol.
 
 ## Safety and scope
 
@@ -19,14 +19,30 @@ The helper:
 ## Requirements
 
 - Python 3.10+ for this deterministic test helper.
-- Project Zomboid Build 42 test mod from the same branch/revision.
+- PZ Companion `v0.0.2` from the same branch/revision.
 - A writable PZ user-data directory shared by PZ and the sidecar.
 
 No third-party Python packages are required.
 
+## Project/mod installation
+
+The stable repository, local-folder, and PZ Mod ID identity is:
+
+```text
+pz-companion
+```
+
+Install the repository root under the normal local mod directory, for example:
+
+```text
+C:\Users\<USERNAME>\Zomboid\mods\pz-companion\
+```
+
+The installed root should directly contain `mod.info`, `VERSION`, `42/`, and `common/`.
+
 ## IPC location
 
-By default the sidecar uses:
+By default the deterministic helper uses:
 
 ```text
 <PZ user directory>/WHG_PZ_Companion/ipc/
@@ -40,98 +56,40 @@ responses/
 runtime/
 ```
 
-The sidecar creates these directories at startup. PZ then uses its normal `getFileWriter` / `getFileReader` user-file APIs to access the same relative paths.
+`WHG_PZ_Companion` is an internal Spike 002 data namespace, not the Project Zomboid Mod ID.
 
-See `docs/IPC_PROTOCOL_V1.md` for the full handshake.
+The sidecar creates these directories at startup. PZ accesses the same relative paths through normal PZ-exposed file APIs.
 
-## Local Windows test
+See [`../../docs/IPC_PROTOCOL_V1.md`](../../docs/IPC_PROTOCOL_V1.md) for the handshake and [`../../docs/TESTING.md`](../../docs/TESTING.md) for the canonical test procedure.
 
-1. Install the mod folder under:
+## Windows
 
-   ```text
-   C:\Users\<USERNAME>\Zomboid\mods\WHG_PZ_Companion\
-   ```
+From this directory or via the repository path:
 
-2. From this directory run:
+```bat
+run-sidecar.bat
+```
 
-   ```bat
-   run-sidecar.bat
-   ```
+`PZ_USER_DIR` may be set to override `%USERPROFILE%\Zomboid`.
 
-   or:
-
-   ```bat
-   py -3 whg_companion_sidecar.py --pz-user-dir "%USERPROFILE%\Zomboid"
-   ```
-
-3. Launch PZ, enable `WHG_PZ_Companion`, and start a solo game.
-
-4. Watch for log lines beginning with:
-
-   ```text
-   [WHG PZ Companion][Spike002]
-   ```
-
-The client harness waits for a fresh sidecar heartbeat, then performs 20 sequential deterministic requests. A successful run ends with a `PASS` line.
-
-## Linux / managed-host test
-
-Set the actual PZ user-data root explicitly. For example:
+## Linux
 
 ```sh
-PZ_USER_DIR=/project-zomboid-config ./run-sidecar.sh
+./run-sidecar.sh
 ```
 
-or:
+Dedicated hosts should normally provide the PZ user-data path explicitly when their managed layout differs from `~/Zomboid`.
 
-```sh
-python3 whg_companion_sidecar.py --pz-user-dir /project-zomboid-config
-```
+## Automated tests
 
-The dedicated-server PZ harness is committed but **disabled by default** in `Spike002Config.lua` until the hosting-provider deployment gate is approved and a server test is intentionally scheduled.
-
-## Automated sidecar tests
-
-Run:
-
-```sh
-python3 -m unittest discover -s tests -v
-```
-
-The initial test suite covers:
-
-- deterministic intent mapping;
-- request-ID correlation;
-- request/ready-marker handshake;
-- response publication and acknowledgement cleanup;
-- malformed JSON converted to structured error data;
-- unready request protection;
-- stale orphan request cleanup;
-- stale unacknowledged response cleanup.
-
-## Operator options
+From `runtime/spike002/`:
 
 ```text
---pz-user-dir PATH   PZ user-data directory; default is ~/Zomboid
---ipc-root PATH      Explicit IPC root override
---poll-ms N          Request scan interval; default 100 ms, minimum 25 ms
---verbose            Debug-level logging
+python -m unittest discover -s tests -v
 ```
 
-## Expected replacement after transport proof
+These tests validate the helper implementation only; an actual PZ/Kahlua run is still required for transport acceptance.
 
-The final runtime boundary should remain:
+## Current state
 
-```text
-PZ Lua -> IPC protocol -> WHG Companion Runtime -> validated response -> PZ Lua
-```
-
-Only the middle implementation changes:
-
-```text
-deterministic test logic
-        ↓
-llama.cpp + selected GGUF model
-```
-
-The sidecar should continue to own model lifecycle, inference queuing, prompt construction, output parsing, diagnostics, and runtime health. PZ remains responsible for validating the response and authorizing deterministic game actions.
+The deterministic helper and PZ transport scaffold are prepared. Local solo runtime validation and the dedicated-host feasibility decision remain outstanding. A clean Java-side integration route is also being evaluated conceptually and may supersede the sidecar if it proves supportable.
