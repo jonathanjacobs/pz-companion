@@ -10,6 +10,11 @@ native/build/
 *.dylib
 *.exe
 
+# Python/test build artifacts
+__pycache__/
+*.pyc
+.pytest_cache/
+
 # Project Zomboid/local test artifacts
 *.log
 *.tmp

@@ -1,0 +1,14 @@
+{
+  "protocolVersion": 1,
+  "requestId": "whg-fixture-001",
+  "type": "conversation",
+  "createdAtEpochMs": 1786767240000,
+  "npcId": "spike002-test-npc",
+  "playerText": "Can you help me find firewood?",
+  "context": {
+    "spike": "002",
+    "environment": "fixture",
+    "sequence": 1,
+    "expectedTotal": 20
+  }
+}

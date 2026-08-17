@@ -1,209 +1,206 @@
 # Spike 002 — Offline Sidecar Runtime and File IPC
 
-**Status:** Planned — hosting feasibility gate pending  
+**Status:** Implementation prepared — hosting feasibility gate pending; PZ runtime validation not yet completed  
+**Development version:** `0.0.2`  
 **Opened:** 2026-08-14  
 **Tracking issue:** #3  
+**Implementation branch:** `spike/002-offline-sidecar-ipc`  
 **Depends on:** Spike 001 completed
 
 ## Objective
 
-Determine whether PZ Companion can use a separately running, fully offline local runtime for conversational inference while Project Zomboid remains inside its normal Build 42 mod sandbox.
+Determine whether PZ Companion can use a separately running, fully offline local runtime for conversational inference while Project Zomboid remains inside its normal Build 42 Lua sandbox.
 
-Spike 001 established that ordinary Project Zomboid Build 42.20.2 mod Lua cannot directly load or launch the native/runtime mechanisms needed for `llama.cpp` through the supported surface identified during testing. Spike 002 therefore moves process lifecycle outside PZ and tests a narrow file-based IPC contract between Lua and a sidecar process.
+Spike 001 established that ordinary Build 42.20.2 mod Lua cannot directly load or launch the native/runtime mechanisms needed for llama.cpp through the tested Lua surface. Spike 002 therefore moves process lifecycle outside PZ and tests a narrow file-based IPC contract.
 
-A successful result must work without cloud APIs, Internet connectivity, public ports, localhost HTTP, socket services, modified PZ JARs, or sandbox/security bypasses.
+This spike is a fallback integration investigation, not yet the final architecture. A separate clean Java-side bridge may supersede it if that route can be loaded supportably without replacing vanilla PZ classes.
 
 ## Architecture under test
 
 ```text
 Project Zomboid Lua
-    -> atomically write request file
+    -> request JSON
+    -> request ready marker
     -> continue game loop without blocking
 
 WHG Companion Runtime
-    -> detect request
+    -> detect ready request
     -> validate request
-    -> produce deterministic response during early tests
-    -> later invoke llama.cpp/model
-    -> atomically write response file
+    -> deterministic response during transport tests
+    -> later llama.cpp/model only after transport passes
+    -> atomically publish response JSON
 
 Project Zomboid Lua
-    -> poll at bounded/low frequency
-    -> read response
-    -> validate protocol version + request ID + schema
-    -> convert approved intent into deterministic game actions
+    -> poll at bounded frequency
+    -> validate protocol + request ID + response schema/intent
+    -> publish response acknowledgement
+    -> deterministic game code retains final authority
 ```
 
-The LLM remains a language/intent component only. It does not directly execute Lua, Java, shell commands, game APIs, filesystem operations outside the defined IPC directory, or arbitrary actions.
+The detailed handshake is defined in [`IPC_PROTOCOL_V1.md`](IPC_PROTOCOL_V1.md).
 
-## Phase 0 — Dedicated-host deployment feasibility gate
+## Current implementation
 
-Before significant implementation work, establish whether the intended Willow Hill dedicated-server host can run the sidecar.
+### PZ-side modules
 
-### Hosting requirement
+Shared modules live under:
 
-The hosting environment must provide at least one supported mechanism to run the WHG Companion Runtime on the same host/filesystem as the PZ server, for example:
-
-- an additional long-lived executable/process;
-- a custom server startup script/command that starts both processes;
-- a custom Docker/container image or entrypoint;
-- a provider-supported equivalent where the host starts/manages the sidecar for us.
-
-The provider must also permit sufficient CPU/RAM for bounded inference workloads and allow the sidecar to read/write only the agreed local IPC directory.
-
-No additional public network port is required by this architecture.
-
-### Hosting decision criteria
-
-**GO:** The current hosting provider confirms a supported way to run the sidecar on the PZ host/container with access to the same IPC files and an acceptable CPU/RAM budget.
-
-**CONDITIONAL GO:** The current provider cannot support it, but moving the Willow Hill PZ server to a hosting platform/VPS/container environment that can run the sidecar is acceptable to the project owner.
-
-**NO-GO for the intended Willow Hill deployment:** The current provider rejects all sidecar/custom-startup/custom-container options and changing hosting is not acceptable.
-
-A hosting NO-GO does **not** prove that local/single-player sidecar inference is impossible. It means the architecture cannot satisfy the dedicated-server deployment requirement under the current hosting constraint.
-
-## Phase A — Deterministic file-IPC proof
-
-Do not introduce an LLM yet. First prove transport and lifecycle behavior with a tiny deterministic helper.
-
-### Request contract
-
-Initial request example:
-
-```json
-{
-  "protocolVersion": 1,
-  "requestId": "20260814-000001",
-  "type": "conversation",
-  "npcId": "test-npc",
-  "playerText": "Can you help me find firewood?"
-}
+```text
+42/media/lua/shared/WHG_Companion/IPC/
 ```
 
-### Response contract
+- `Json.lua` — pure-Lua JSON encoder/decoder.
+- `Protocol.lua` — protocol-v1 request/response/runtime-status construction and validation.
+- `Transport.lua` — request publication, response polling, acknowledgement, heartbeat validation, timeout handling, and pending-request tracking.
+- `Spike002Config.lua` — development harness settings.
+- `Spike002HarnessCore.lua` — deterministic request/recovery state machine.
 
-Initial response example:
+Bootstrap modules:
 
-```json
-{
-  "protocolVersion": 1,
-  "requestId": "20260814-000001",
-  "status": "ok",
-  "speech": "Sure. I'll look nearby.",
-  "intent": "COLLECT_RESOURCE",
-  "parameters": {
-    "resource": "FIREWOOD"
-  }
-}
+- client/single-player: `42/media/lua/client/WHG_Companion/IPC/Spike002ClientHarness.lua`;
+- dedicated server: `42/media/lua/server/WHG_Companion/IPC/Spike002ServerHarness.lua`.
+
+The client harness is available for local testing. The dedicated-server harness remains intentionally disabled until hosting approval and an explicit server test.
+
+### Deterministic helper
+
+`runtime/spike002/whg_companion_sidecar.py` is a Python 3.10+ standard-library-only helper used only to prove transport. Python is not a production-runtime requirement.
+
+The helper:
+
+- creates the IPC directory structure;
+- publishes heartbeat/status data;
+- consumes requests only after a ready marker exists;
+- validates protocol fields and filename/request-ID correlation;
+- returns deterministic allowlisted intents;
+- atomically publishes responses;
+- converts malformed requests to structured errors;
+- cleans consumed/acknowledged/stale files;
+- handles SIGINT/SIGTERM gracefully;
+- opens no network socket and contacts no external service.
+
+## Stable mod identity versus IPC namespace
+
+The stable PZ project identity is:
+
+```text
+Repository / folder / Mod ID: pz-companion
 ```
 
-The exact production schema may evolve, but protocol versioning and request correlation are mandatory from the first implementation.
+The current protocol files intentionally remain under the internal user-data namespace:
 
-### Requirements
+```text
+<PZ user directory>/WHG_PZ_Companion/ipc/
+```
 
-- Use only PZ-supported file APIs from Lua.
-- Sidecar must be started outside PZ by a user, launcher, startup script, container entrypoint, or hosting-provider mechanism.
-- No HTTP or socket transport for the IPC spike.
-- No `Runtime`, `ProcessBuilder`, JNA-from-Lua, reflection, `os.execute`, `io.popen`, LuaJIT FFI, native Lua modules, modified PZ JARs, or equivalent sandbox bypasses.
-- Request IDs must be unique enough to prevent response confusion across concurrent or restarted sessions.
-- Protocol versions must be explicit.
-- Sidecar writes must be atomic, such as write-temporary-then-rename, so Lua never consumes a partial response.
-- Lua must reject mismatched request IDs, unsupported protocol versions, malformed responses, stale responses, and unknown intents.
-- Lua must never block the game loop waiting for inference.
-- Polling must be event-driven or low-frequency; disk I/O must not run every frame.
-- Missing or stopped sidecar must degrade safely.
-- Restarting the sidecar should recover without restarting PZ if practical.
-- The protocol must be usable later on a dedicated server without changing the conversation/game-action contract.
-- All sidecar/model output is treated as untrusted data and validated before use.
+That internal path is not an alternate PZ Mod ID.
 
-## Phase B — IPC reliability and failure recovery
+## Phase 0 — dedicated-host deployment feasibility gate
 
-After one round trip works, exercise the transport repeatedly before adding model inference.
+The intended dedicated host must support at least one legitimate mechanism to run the sidecar on the same host/filesystem as PZ:
 
-Acceptance tests:
+- additional long-lived process;
+- custom startup script/command;
+- custom container image/entrypoint;
+- provider-managed equivalent.
 
-1. Start the deterministic sidecar helper.
-2. Launch PZ with `WHG_PZ_Companion` enabled.
-3. Trigger a request from Lua.
-4. Confirm the request file is produced and complete.
-5. Confirm the helper reads it and writes a complete response.
-6. Confirm Lua correlates and validates the response.
-7. Repeat at least 20 sequential requests with no stale, duplicate, partial, or mismatched responses.
-8. Exercise at least several overlapping/pending request IDs if the implementation supports concurrent NPC conversations.
-9. Stop the helper and verify Lua times out/fails safely without freezing or crashing PZ.
-10. Restart the helper and verify recovery without restarting PZ if feasible.
-11. Leave stale request/response files behind and verify they are detected and ignored or safely cleaned up.
-12. Verify the helper can be terminated without corrupting the IPC directory.
+The initial resource envelope communicated to the hosting provider is approximately **2 GB RAM and 2 CPU threads/vCPU** for the eventual ~0.5B quantized-model runtime, with CPU close to idle when no inference is active.
 
-## Phase C — Local inference substitution
+### Hosting decision
 
-Only after the deterministic IPC transport passes should the helper internals be replaced with the selected inference runtime.
+**GO:** current host supports a sidecar/startup/container mechanism with shared IPC filesystem and acceptable CPU/RAM limits.
+
+**CONDITIONAL GO:** current host cannot support it, but moving to a compatible hosting environment is acceptable.
+
+**NO-GO for the intended deployment:** current host rejects all supported sidecar mechanisms and changing hosting is not acceptable.
+
+A hosting no-go does not prove local/single-player sidecar inference impossible; it blocks the intended dedicated deployment on that host.
+
+## Phase A — deterministic local file-IPC proof
+
+Follow the canonical procedure in [`TESTING.md`](TESTING.md).
+
+Initial success requires:
+
+- a fresh runtime heartbeat visible to PZ;
+- 20 sequential deterministic request/response cycles;
+- exact request-ID correlation;
+- no duplicate/partial/stale response consumption;
+- response acknowledgements and cleanup;
+- no game-loop blocking/crash.
+
+## Phase B — failure and recovery
+
+After sequential transport passes:
+
+- stop the sidecar while PZ remains running;
+- verify bounded timeout and safe pending-state cleanup;
+- restart the helper without restarting PZ;
+- verify fresh-heartbeat recovery and new request success;
+- verify late/stale responses are not mis-correlated;
+- test malformed JSON, unsupported protocol versions, wrong IDs, unknown intents, and abandoned unready files.
+
+## Phase C — local inference substitution
+
+Only after deterministic transport passes should the helper internals be replaced with inference.
 
 Initial candidate stack:
 
 - Runtime: `llama.cpp`
-- Primary model candidate: `Qwen/Qwen2.5-0.5B-Instruct-GGUF`
+- Model: `Qwen/Qwen2.5-0.5B-Instruct-GGUF`
 - Quantization: `Q4_K_M`
-- Initial concurrency: one inference request
+- Initial concurrency: 1
 - Network requirement: none
 
-The request/response IPC contract should remain stable while the helper implementation changes from deterministic output to model inference.
+Record model load time, resident RAM, prompt/generation tokens/sec, end-to-end latency, CPU utilization, schema/intent validity, error recovery, and queued-request behavior.
 
-Record:
+## Phase D — dedicated-server validation
 
-- model load time;
-- resident memory;
-- prompt-evaluation tokens/second;
-- generation tokens/second;
-- end-to-end PZ request-to-response latency;
-- CPU utilization;
-- schema/intent validity rate;
-- recovery behavior after inference errors;
-- behavior under multiple queued NPC requests.
+If Phase 0 is GO and the sidecar route remains selected:
 
-## Phase D — Dedicated-server validation
-
-If Phase 0 hosting feasibility is a GO, reproduce the proven IPC path on the Willow Hill test server.
-
-Validate:
-
-- sidecar and PZ can access the same IPC directory;
-- startup/restart ordering is reliable;
-- PZ server restarts do not leave invalid work that is later consumed;
-- sidecar restarts do not require a PZ restart where avoidable;
-- model CPU/RAM use does not materially destabilize the PZ server;
-- companion inference remains server-authoritative in multiplayer;
-- no client is required to run its own model for server-owned companions.
+- reproduce the proven deterministic transport on the Willow Hill test server;
+- verify shared IPC filesystem and startup/restart ordering;
+- verify PZ/server restart does not consume invalid stale work;
+- verify sidecar restart does not require a PZ restart where avoidable;
+- verify CPU/RAM use does not materially destabilize PZ;
+- preserve server-authoritative companion state/inference;
+- require no client-side model for server-owned companions.
 
 ## Go / no-go criteria
 
-Spike 002 is a **GO** only if all of the following are demonstrated:
+Spike 002 is a **GO** only if:
 
-- A deployable hosting/startup mechanism exists for the intended dedicated server, or an acceptable alternate hosting path is explicitly chosen.
-- PZ Lua can exchange request/response data with the sidecar using supported file APIs.
-- IPC is non-blocking from the game-loop perspective.
-- Responses are correlated, versioned, schema-validated, and safe under stale/malformed/missing data.
-- At least 20 deterministic round trips complete without transport corruption or response confusion.
-- Sidecar loss and restart degrade/recover safely.
-- The same protocol can host llama.cpp without requiring a transport redesign.
-- Local model inference is fast enough and resource-bounded enough for the target deployment.
-- No external network service is required during play.
-- Model output remains data only; deterministic game code retains final authority over actions.
+- a deployable sidecar/startup mechanism exists for the intended dedicated environment or an acceptable alternate host is explicitly chosen;
+- PZ can exchange request/response data through supported file APIs without game-loop blocking;
+- responses are correlated, versioned, schema-validated, and safe under malformed/stale/missing data;
+- at least 20 deterministic round trips complete without transport corruption/response confusion;
+- sidecar loss and restart degrade/recover safely;
+- the same protocol can host llama.cpp without transport redesign;
+- model inference is sufficiently fast and resource-bounded;
+- no external network service is required;
+- deterministic game code retains final authority.
 
-Spike 002 is a **NO-GO** if any required condition cannot be satisfied without bypassing PZ security controls, depending on an external/cloud inference service, blocking the game loop unacceptably, or using a deployment mechanism unavailable on the required dedicated-server environment.
+Spike 002 is **NO-GO** if a required condition can only be satisfied by bypassing PZ security controls, depending on external/cloud inference, unacceptable game-loop blocking, or a deployment mechanism unavailable on the required hosting environment.
+
+A successful clean Java bridge may also cause Spike 002 to be closed as **superseded**, rather than failed.
 
 ## Out of scope
 
-This spike does not attempt to implement the full NPC behavior system. It does not decide final companion personality/memory design, navigation, combat AI, job planning, or UI. Those systems should consume the validated conversation/intent interface after the transport and inference runtime are proven.
+This spike does not implement production NPC spawning, navigation, combat AI, jobs, personality/memory, relationship simulation, or production conversation UI.
 
 ## Decision log
 
-Update this section as evidence arrives. Do not rely only on GitHub issue comments; durable findings belong in this document.
+### 2026-08-14 — spike opened
+- Spike 001 closed the ordinary-Lua direct loading/launch route.
+- File IPC selected as the next clean fallback mechanism.
+- Hosting feasibility identified as Phase 0.
 
-### 2026-08-14 — Spike opened
+### 2026-08-15 — deterministic implementation prepared
+- Implemented protocol v1, pure-Lua JSON/protocol/transport modules, heartbeat, acknowledgement, timeout/recovery state machine, deterministic helper, scripts, fixtures, and automated tests.
+- Pre-PZ syntax/unit/smoke checks passed; no PZ/Kahlua runtime PASS claimed yet.
 
-- Spike 001 closed the direct in-process/mod-launched inference path for ordinary PZ 42.20.2 Lua.
-- File IPC selected as the next clean integration mechanism.
-- Hosting feasibility identified as Phase 0 because a dedicated-server sidecar must be runnable on the same host/filesystem.
-- Awaiting confirmation from the current hosting provider regarding additional processes/custom startup/custom container support.
+### 2026-08-16 — repository framework standardized
+- Normalized repository/install identity to root-level `42/` + `common/` with Mod ID/folder `pz-companion` and version `0.0.2`.
+- Kept internal `WHG_Companion` Lua and `WHG_PZ_Companion/ipc` protocol namespaces unchanged.
+- Added canonical testing documentation and aligned the spike with the shared PZ-project development framework.
+- Recorded that a clean Java bridge is a separate candidate route and may supersede the sidecar if validated.

@@ -1,0 +1,16 @@
+{
+  "protocolVersion": 1,
+  "requestId": "whg-fixture-001",
+  "status": "ok",
+  "speech": "Sure. I'll look nearby for firewood.",
+  "intent": "COLLECT_RESOURCE",
+  "confidence": 1.0,
+  "parameters": {
+    "resource": "FIREWOOD"
+  },
+  "diagnostics": {
+    "runtimeMode": "deterministic-spike",
+    "runtimeVersion": "0.0.2-spike002",
+    "processingMs": 0
+  }
+}
