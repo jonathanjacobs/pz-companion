@@ -2,6 +2,7 @@
 
 **Status:** Planned / pre-implementation  
 **Opened:** 2026-08-16  
+**Tracking issue:** #9  
 **Depends on:** Spike 001 completed  
 **Relationship to Spike 002:** preferred alternative if supportable; Spike 002 remains prepared fallback
 
