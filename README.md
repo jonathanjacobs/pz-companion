@@ -29,7 +29,7 @@ Result: **NO-GO for direct in-process or mod-launched inference through the ordi
 
 Windows single-player and Linux dedicated-server probes found no supported LuaJIT FFI, native-module loading, subprocess launch, unrestricted Java reflection/classloading, JNA, or equivalent entry point. Exhaustive Java namespace enumeration showed a curated exposed surface rather than unrestricted JVM access.
 
-The detailed evidence and decision are in [`docs/SPIKE-001_LOCAL_INFERENCE.md`](docs/SPIKE-001_LOCAL_INFERENCE.md).
+The bounded evidence and decision are in [`docs/SPIKE-001_LOCAL_INFERENCE.md`](docs/SPIKE-001_LOCAL_INFERENCE.md).
 
 ### Spike 002 — offline sidecar + file IPC: IMPLEMENTATION PREPARED
 
@@ -51,11 +51,13 @@ The implementation includes a pure-Lua JSON codec, protocol-v1 validation, non-b
 
 The dedicated-hosting feasibility gate remains pending. See [`docs/SPIKE-002_OFFLINE_SIDECAR_IPC.md`](docs/SPIKE-002_OFFLINE_SIDECAR_IPC.md) and [`docs/IPC_PROTOCOL_V1.md`](docs/IPC_PROTOCOL_V1.md).
 
-### Java integration note
+### Spike 003 — clean Java bridge: PLANNED
 
-Spike 001's conclusion applies to **ordinary Lua mod execution**. Project Zomboid also supports Java-side modification mechanisms outside that Lua sandbox. A clean Java bridge that can be loaded without overwriting vanilla game classes is therefore a separate integration route worth validating before the sidecar architecture is treated as final.
+Spike 001's conclusion applies to **ordinary Lua mod execution**. Project Zomboid also supports Java-side modification mechanisms outside that Lua sandbox. Spike 003 will determine whether a project-owned Java bridge can be loaded cleanly without overwriting vanilla game classes, expose a narrow API back to Lua, and eventually host local inference in-process.
 
-The project will prefer a clean in-process Java bridge if it can be installed and maintained supportably. The prepared Spike 002 sidecar remains the fallback architecture if the Java route is not viable.
+If that route is supportable, it is preferred because it may eliminate the sidecar lifecycle/hosting dependency. If it is not, the already prepared Spike 002 sidecar remains the fallback.
+
+See [`docs/SPIKE-003_JAVA_BRIDGE.md`](docs/SPIKE-003_JAVA_BRIDGE.md).
 
 ## Stable project identity
 
@@ -108,6 +110,7 @@ pz-companion/
 │   ├── REQUIREMENTS.md
 │   ├── SPIKE-001_LOCAL_INFERENCE.md
 │   ├── SPIKE-002_OFFLINE_SIDECAR_IPC.md
+│   ├── SPIKE-003_JAVA_BRIDGE.md
 │   └── TESTING.md
 ├── models/
 ├── runtime/

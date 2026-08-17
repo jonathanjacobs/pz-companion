@@ -9,10 +9,11 @@ Development, architecture, test, and investigation documentation lives in this d
 - [`TESTING.md`](TESTING.md) — repeatable local and dedicated-server test procedures and evidence expectations.
 - [`CLEAN_ROOM_POLICY.md`](CLEAN_ROOM_POLICY.md) — provenance rules for independent implementation and third-party reference material.
 
-## Active integration work
+## Integration spikes and protocol
 
-- [`SPIKE-001_LOCAL_INFERENCE.md`](SPIKE-001_LOCAL_INFERENCE.md) — completed Build 42.20.2 ordinary-Lua capability investigation and no-go decision for direct Lua-driven inference loading/launch.
-- [`SPIKE-002_OFFLINE_SIDECAR_IPC.md`](SPIKE-002_OFFLINE_SIDECAR_IPC.md) — current deterministic sidecar/file-IPC investigation, hosting gate, implementation status, and go/no-go criteria.
+- [`SPIKE-001_LOCAL_INFERENCE.md`](SPIKE-001_LOCAL_INFERENCE.md) — completed Build 42.20.2 ordinary-Lua capability investigation and bounded no-go decision for direct Lua-driven inference loading/launch.
+- [`SPIKE-002_OFFLINE_SIDECAR_IPC.md`](SPIKE-002_OFFLINE_SIDECAR_IPC.md) — prepared sidecar/file-IPC fallback, hosting gate, implementation status, and go/no-go criteria.
+- [`SPIKE-003_JAVA_BRIDGE.md`](SPIKE-003_JAVA_BRIDGE.md) — planned clean Java-bridge investigation to determine whether an in-process project-owned bridge can be loaded without replacing vanilla PZ classes.
 - [`IPC_PROTOCOL_V1.md`](IPC_PROTOCOL_V1.md) — versioned filesystem protocol used by the Spike 002 transport implementation.
 - [`spike-results/`](spike-results/) — durable empirical evidence and investigation notes supporting spike decisions.
 
